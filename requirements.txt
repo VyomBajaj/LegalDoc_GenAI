@@ -21,3 +21,5 @@ uvicorn
 python-multipart
 pydantic
 tiktoken
+PyMuPDF
+pinecone

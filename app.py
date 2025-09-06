@@ -26,8 +26,16 @@ from summarizer import generate_document_summary, extract_last_date
 from models import SummaryResponse, LegalDocSummary, LastDateResponse
 from utils import extract_text_from_pdf
 from modules.chunking import file_to_chunks
-from modules.embedding_store import build_faiss_from_chunks, INDEX_DIR
+# app.py (imports near the top)
+from modules.embedding_store import (
+    build_faiss_from_chunks,
+    INDEX_DIR,
+    USE_PINECONE,
+    upsert_chunks_to_pinecone,
+    PINECONE_INDEX_NAME
+)
 from modules.retriever import answer_query
+
 from modules.chatbot import init_chat, add_user_message, add_bot_message
 
 # Set up logging
@@ -55,11 +63,10 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     query: str
 
-# --- Chat Endpoints ---
+# --- UPLOAD AND CHUNK Endpoints ---
 
 @app.post("/upload-and-build/")
 async def upload_and_build_db(file: UploadFile = File(...)):
-    # ... (no change, existing code for RAG) ...
     global db_session
     
     filepath = Path("data") / file.filename
@@ -73,14 +80,28 @@ async def upload_and_build_db(file: UploadFile = File(...)):
         if not chunks:
             raise HTTPException(status_code=400, detail="The document is empty or could not be processed.")
         
-        metadatas = [{"source": file.filename, "chunk_id": i} for i in range(len(chunks))]
-        db = build_faiss_from_chunks(chunks, metadatas=metadatas, index_path=str(INDEX_DIR))
-        
+        # create metadata list for each chunk (we will store chunk_id and source and index it)
+        metadatas = [{"source": file.filename, "chunk_id": str(uuid.uuid4())} for _ in range(len(chunks))]
+
         conversation_id = str(uuid.uuid4())
-        db_session[conversation_id] = {
-            "faiss_db": db,
-            "chat_history": init_chat()
-        }
+
+        if USE_PINECONE:
+            # upsert into Pinecone under namespace = conversation_id
+            upsert_chunks_to_pinecone(chunks, metadatas=metadatas, index_name=PINECONE_INDEX_NAME, namespace=conversation_id)
+        else:
+            # Fallback: build local FAISS index and persist
+            db = build_faiss_from_chunks(chunks, metadatas=metadatas, index_path=str(INDEX_DIR))
+            # optionally still save something in db_session if you rely on in-memory for immediate queries
+            db_session[conversation_id] = {
+                "faiss_db": db,
+                "chat_history": init_chat()
+            }
+
+        # For Pinecone mode we don't store faiss_db in memory; only chat history
+        if USE_PINECONE:
+            db_session[conversation_id] = {
+                "chat_history": init_chat()
+            }
 
         return {
             "message": f"Successfully processed {len(chunks)} chunks and built the vector DB.",
@@ -91,33 +112,43 @@ async def upload_and_build_db(file: UploadFile = File(...)):
     finally:
         os.remove(filepath)
 
+
+# --- CHAT Endpoints ---
+
 @app.post("/chat/")
 async def chat_with_docs(request: ChatRequest):
-    # ... (no change, existing code for RAG) ...
     conversation_id = request.conversation_id
     query = request.query
-    
-    if not conversation_id or conversation_id not in db_session:
-        raise HTTPException(status_code=400, detail="Invalid or missing conversation ID. Please upload a document first.")
-    
+
+    if not conversation_id:
+        raise HTTPException(status_code=400, detail="Missing conversation ID.")
+
+    # If chat history is missing (e.g., after restart), create a fresh one
+    if conversation_id not in db_session:
+        db_session[conversation_id] = {"chat_history": init_chat()}
+
     session_data = db_session[conversation_id]
-    
     add_user_message(session_data["chat_history"], query)
-    
+
     try:
-        answer = answer_query(query, index_path=str(INDEX_DIR))
-    except FileNotFoundError:
-        raise HTTPException(status_code=400, detail="Vector DB not found. Please upload a document first.")
-    
+        # 🔑 always query Pinecone using namespace = conversation_id
+        answer = answer_query(
+            query,
+            index_path=str(INDEX_DIR),  # only used for FAISS fallback
+            conversation_id=conversation_id
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Internal error: {e}")
+
     add_bot_message(session_data["chat_history"], answer)
-    
-    db_session[conversation_id]["chat_history"] = session_data["chat_history"]
-    
+
     return {
         "conversation_id": conversation_id,
         "answer": answer,
         "chat_history": session_data["chat_history"]
     }
+
+
 
 # --- Summarizer Endpoints ---
 

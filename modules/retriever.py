@@ -15,11 +15,12 @@ load_dotenv()
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.0-flash")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-PROMPT = """You are an experienced and responsible lawyer. Use ONLY the provided context to answer the question.
-If the answer can be derived from the context, provide it clearly and precisely.
-If the context is insufficient but the question is general, give advice as a lawyer would, based on the idea of the documents.
-Do not hallucinate or make up answers if you don't have specific knowledge or action to advise.
-If the user asks in another language, respond in that language; otherwise respond in English.
+PROMPT = """You are an experienced lawyer. 
+Give only the direct answer in 2–3 sentences maximum. 
+Do not use phrases like "Based on the context" or "As a lawyer". 
+Extract only the essential points from the context. 
+If the context is missing, give short, practical legal advice. 
+Always reply in the same language as the question.
 
 Context:
 {context}

@@ -20,7 +20,11 @@ Give only the direct answer in 2–3 sentences maximum.
 Do not use phrases like "Based on the context" or "As a lawyer". 
 Extract only the essential points from the context. 
 If the context is missing, give short, practical legal advice. 
+<<<<<<< HEAD
 Always reply in the same language as the question.
+=======
+Always reply in the same language as the question.
+>>>>>>> 2035313b64af9c21e54845d76af2697ea61b4b8e
 
 Context:
 {context}

@@ -15,11 +15,12 @@ load_dotenv()
 LLM_MODEL = os.getenv("LLM_MODEL", "gemini-2.0-flash")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-PROMPT = """You are an experienced and responsible lawyer. Use ONLY the provided context to answer the question.
-If the answer can be derived from the context, provide it clearly and precisely.
-If the context is insufficient but the question is general, give advice as a lawyer would, based on the idea of the documents.
-Do not hallucinate or make up answers if you don't have specific knowledge or action to advise.
-If the user asks in another language, respond in that language; otherwise respond in English.
+PROMPT = """You are an experienced lawyer. 
+Give only the direct answer in 2–3 sentences maximum. 
+Do not use phrases like "Based on the context" or "As a lawyer". 
+Extract only the essential points from the context. 
+If the context is missing, give short, practical legal advice. 
+Always reply in the same language as the question.
 
 Context:
 {context}
@@ -31,22 +32,22 @@ Answer:"""
 
 prompt = ChatPromptTemplate.from_template(PROMPT)
 
+# --- Cache LLM instance ---
+_llm_instance = None
+
 def get_llm():
-    if not GOOGLE_API_KEY:
-        raise ValueError("GOOGLE_API_KEY not set in environment.")
-    llm = ChatGoogleGenerativeAI(
-        model=LLM_MODEL,
-        temperature=0.2,  # slight creativity for advice, but not hallucinations
-        google_api_key=GOOGLE_API_KEY
-    )
-    return llm
+    global _llm_instance
+    if _llm_instance is None:
+        if not GOOGLE_API_KEY:
+            raise ValueError("GOOGLE_API_KEY not set in environment.")
+        _llm_instance = ChatGoogleGenerativeAI(
+            model=LLM_MODEL,
+            temperature=0.2,
+            google_api_key=GOOGLE_API_KEY
+        )
+    return _llm_instance
 
 def answer_query(query: str, top_k: int = 4, index_path: str = str(INDEX_DIR / "faiss_index"), conversation_id: Optional[str] = None) -> str:
-    """
-    Returns generated answer using context if available, or advice as a lawyer.
-    Avoids generic fallback messages and responds intelligently.
-    """
-    # Retrieve relevant documents
     results = []
 
     if USE_PINECONE:
@@ -60,10 +61,8 @@ def answer_query(query: str, top_k: int = 4, index_path: str = str(INDEX_DIR / "
         except FileNotFoundError:
             results = []
 
-    # Prepare context if available
     context = "\n\n---\n\n".join([d.page_content for d in results]) if results else "No specific document content available."
 
-    # Get the language preference by inspecting the query (basic heuristic)
     language_hint = "Respond in the same language as the question if possible."
 
     full_context = f"{context}\n\n{language_hint}"

@@ -21,15 +21,18 @@ INDEX_DIR.mkdir(parents=True, exist_ok=True)
 # Pinecone configuration
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 PINECONE_INDEX_NAME = os.getenv("PINECONE_INDEX_NAME", "doc-embeddings")
-PINECONE_METRIC = os.getenv("PINECONE_METRIC", "cosine")  # 'cosine', 'dotproduct', 'euclidean'
+PINECONE_METRIC = os.getenv("PINECONE_METRIC", "cosine")
 USE_PINECONE = bool(PINECONE_API_KEY)
 
 # Initialize Pinecone client
 pc = Pinecone(api_key=PINECONE_API_KEY) if USE_PINECONE else None
 
+# --- Caching the embedding model ---
+_EMBEDDING_MODEL_INSTANCE = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+
 def get_embedding_model():
-    """Get the Hugging Face embeddings model (LangChain wrapper)."""
-    return HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+    """Return cached embedding model instance."""
+    return _EMBEDDING_MODEL_INSTANCE
 
 # ---- Existing FAISS helpers ----
 def build_faiss_from_chunks(chunks, metadatas=None, index_path: str = str(INDEX_DIR / "faiss_index")):
@@ -53,7 +56,6 @@ def load_faiss(index_path: str = str(INDEX_DIR / "faiss_index")):
 
 # ---- Pinecone helpers ----
 def init_pinecone_index(index_name: str = PINECONE_INDEX_NAME):
-    """Return the Pinecone Index object."""
     if not USE_PINECONE:
         raise RuntimeError("Pinecone is not configured. Set PINECONE_API_KEY in .env")
     return pc.Index(index_name)
@@ -66,7 +68,6 @@ def _normalize_vector(vec):
     return arr.tolist()
 
 def upsert_chunks_to_pinecone(chunks, metadatas=None, index_name: str = PINECONE_INDEX_NAME, namespace: str = None, batch_size: int = 100):
-    """Upsert text chunks into Pinecone, return list of chunk_ids."""
     if not USE_PINECONE:
         raise RuntimeError("Pinecone not enabled in environment variables.")
 
@@ -100,7 +101,6 @@ def upsert_chunks_to_pinecone(chunks, metadatas=None, index_name: str = PINECONE
     return returned_ids
 
 def query_pinecone(query: str, top_k: int = 4, index_name: str = PINECONE_INDEX_NAME, namespace: str = None):
-    """Query Pinecone and return a list of langchain Document objects."""
     if not USE_PINECONE:
         raise RuntimeError("Pinecone not enabled in environment variables.")
 
@@ -120,7 +120,6 @@ def query_pinecone(query: str, top_k: int = 4, index_name: str = PINECONE_INDEX_
     return docs
 
 def delete_namespace_from_pinecone(index_name: str = PINECONE_INDEX_NAME, namespace: str = None):
-    """Remove all vectors in a namespace (conversation)."""
     if not USE_PINECONE:
         raise RuntimeError("Pinecone not enabled.")
     idx = init_pinecone_index(index_name=index_name)

@@ -19,4 +19,5 @@ services:
         sync: false
       - key: PINECONE_METRIC
         sync: false
-    pythonVersion: "3.10"
+    pythonVersion: "3.12.7"
+

@@ -43,9 +43,9 @@ jsonpatch==1.33
 jsonpointer==3.0.0
 jsonschema==4.25.1
 jsonschema-specifications==2025.4.1
-langchain==0.2.12
-langchain-community==0.2.11
-langchain-core==0.2.27
+langchain>=0.3,<0.4
+langchain-community>=0.2,<0.3
+langchain-core>=0.2,<0.3
 langchain-google-genai==1.0.8
 langchain-huggingface==0.3.1
 langchain-text-splitters==0.2.2
@@ -123,4 +123,5 @@ urllib3==2.5.0
 uvicorn==0.35.0
 watchdog==4.0.2
 yarl==1.20.1
+
 

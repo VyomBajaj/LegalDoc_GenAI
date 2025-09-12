@@ -22,12 +22,9 @@ from models import SummaryResponse, LegalDocSummary, LastDateResponse
 from utils import extract_text_from_pdf
 from modules.chunking import file_to_chunks
 from modules.embedding_store import (
-    build_faiss_from_chunks,
-    INDEX_DIR,
     USE_PINECONE,
     upsert_chunks_to_pinecone,
     PINECONE_INDEX_NAME,
-    load_faiss
 )
 from modules.retriever import answer_query
 from modules.chatbot import init_chat, add_user_message, add_bot_message
@@ -52,13 +49,9 @@ class ChatRequest(BaseModel):
     conversation_id: Optional[str] = None
     query: str
 
-# --- Cache FAISS index ---
-cached_faiss = None
-if not USE_PINECONE:
-    try:
-        cached_faiss = load_faiss(index_path=str(INDEX_DIR))
-    except FileNotFoundError:
-        cached_faiss = None
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to LegalDoc-GenAI FastAPI backend!"}
 
 @app.post("/upload-and-build/")
 async def upload_and_build_db(file: UploadFile = File(...)):
@@ -79,21 +72,11 @@ async def upload_and_build_db(file: UploadFile = File(...)):
 
         conversation_id = str(uuid.uuid4())
 
-        if USE_PINECONE:
-            upsert_chunks_to_pinecone(chunks, metadatas=metadatas, index_name=PINECONE_INDEX_NAME, namespace=conversation_id)
-        else:
-            db = build_faiss_from_chunks(chunks, metadatas=metadatas, index_path=str(INDEX_DIR))
-            global cached_faiss
-            cached_faiss = db  # update cache
-            db_session[conversation_id] = {
-                "faiss_db": db,
-                "chat_history": init_chat()
-            }
-
-        if USE_PINECONE:
-            db_session[conversation_id] = {
-                "chat_history": init_chat()
-            }
+        upsert_chunks_to_pinecone(chunks, metadatas=metadatas, index_name=PINECONE_INDEX_NAME, namespace=conversation_id)
+        
+        db_session[conversation_id] = {
+            "chat_history": init_chat()
+        }
 
         return {
             "message": f"Successfully processed {len(chunks)} chunks and built the vector DB.",
@@ -109,37 +92,17 @@ async def chat_with_docs(request: ChatRequest):
     conversation_id = request.conversation_id
     query = request.query
 
-    if not conversation_id:
-        raise HTTPException(status_code=400, detail="Missing conversation ID.")
-
-    if conversation_id not in db_session:
-        db_session[conversation_id] = {"chat_history": init_chat()}
+    if not conversation_id or conversation_id not in db_session:
+        raise HTTPException(status_code=400, detail="Missing or invalid conversation ID.")
 
     session_data = db_session[conversation_id]
     add_user_message(session_data["chat_history"], query)
 
     try:
-        if USE_PINECONE:
-            answer = answer_query(
-                query,
-                index_path=str(INDEX_DIR),
-                conversation_id=conversation_id
-            )
-        else:
-            global cached_faiss
-            if cached_faiss:
-                retriever = cached_faiss.as_retriever(search_type="similarity", search_kwargs={"k": 4})
-                results = retriever.get_relevant_documents(query)
-                context = "\n\n---\n\n".join([d.page_content for d in results]) if results else "No specific document content available."
-                language_hint = "Respond in the same language as the question if possible."
-                full_context = f"{context}\n\n{language_hint}"
-                from modules.retriever import get_llm, prompt
-                llm = get_llm()
-                rag_chain = prompt | llm
-                resp = rag_chain.invoke({"context": full_context, "question": query}).content
-                answer = resp
-            else:
-                answer = "Document index not available."
+        answer = answer_query(
+            query,
+            conversation_id=conversation_id
+        )
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal error: {e}")

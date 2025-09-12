@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: legal-doc-service
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: EMBEDDING_MODEL
+        sync: false
+      - key: LLM_MODEL
+        sync: false
+      - key: EMBEDDING_DIM
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: PINECONE_INDEX_NAME
+        sync: false
+      - key: PINECONE_METRIC
+        sync: false
+    pythonVersion: "3.12.7"
+
